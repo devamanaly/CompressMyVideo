@@ -378,7 +378,7 @@ export const compressVideo = async (
           // codec: 'avc',
 
           // DEBUG TARGET
-          hardwareAcceleration: 'prefer-software',
+          hardwareAcceleration: 'no-preference',
 
           quality: new Quality({
             bitrate: videoBitrate,
