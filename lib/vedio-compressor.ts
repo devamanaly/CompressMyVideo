@@ -250,6 +250,7 @@ export const compressVideo = async (
           width,
           height,
           fit: 'contain',
+          // hardwareAcceleration:'prefer-hardware',
           // codec: 'avc',
           quality: new Quality({
             bitrate: videoBitrate,
@@ -269,7 +270,7 @@ export const compressVideo = async (
           end: trimEnd,
         };
       }
-
+      console.log('[MediaBunny] Video encoder request:', { codec: conversionOptions.video.codec, hardwareAcceleration: conversionOptions.video.hardwareAcceleration, width: conversionOptions.video.width, height: conversionOptions.video.height, bitrate: conversionOptions.video.quality?.bitrate, bitrateMode: conversionOptions.video.quality?.bitrateMode, audioBitrate, videoBitrate, }); console.log( '[MediaBunny] Full conversion options:', conversionOptions );
       const conversion = await Conversion.init(conversionOptions);
       return { conversion, output };
     };

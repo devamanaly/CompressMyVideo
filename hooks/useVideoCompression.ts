@@ -2,9 +2,28 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { CompressionState, VideoMetadata, CompressionOptions } from '@/lib/types';
-import { compressVideo } from '@/lib/vedio-compressor';
-import { DEFAULT_MAX_SIZE } from '@/lib/constants';
+// FIX: Changed from 'vedio-compressor' to 'video-compressor'
+import { compressVideo, VideoCompressionCancelled } from '@/lib/vedio-compressor';
+import { CompressionOptions } from '@/lib/vedio-compressor';
+
+export interface VideoMetadata {
+  name: string;
+  size: number;
+  duration: number;
+  width: number;
+  height: number;
+  type: string;
+}
+
+export interface CompressionState {
+  status: 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
+  progress: number;
+  originalFile: File | null;
+  compressedFile: File | null;
+  metadata: VideoMetadata | null;
+  error: string | null;
+  startTime?: number;
+}
 
 export function useVideoCompression() {
   const [state, setState] = useState<CompressionState>({
@@ -22,6 +41,7 @@ export function useVideoCompression() {
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
+      
       video.onloadedmetadata = () => {
         resolve({
           name: file.name,
@@ -33,13 +53,56 @@ export function useVideoCompression() {
         });
         URL.revokeObjectURL(video.src);
       };
+      
       video.onerror = () => {
         reject(new Error('Failed to load video metadata'));
         URL.revokeObjectURL(video.src);
       };
+      
       video.src = URL.createObjectURL(file);
     });
   };
+
+  const verifyCompressedVideo = useCallback(async (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      
+      video.onloadedmetadata = () => {
+        // Check if video has valid dimensions
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          URL.revokeObjectURL(url);
+          resolve(false);
+          return;
+        }
+        
+        // Check if video can play
+        const canPlay = video.canPlayType('video/mp4');
+        if (canPlay === '') {
+          URL.revokeObjectURL(url);
+          resolve(false);
+          return;
+        }
+        
+        URL.revokeObjectURL(url);
+        resolve(true);
+      };
+      
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(false);
+      };
+      
+      video.src = url;
+      video.load();
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        resolve(false);
+      }, 5000);
+    });
+  }, []);
 
   const uploadFile = useCallback(async (file: File) => {
     try {
@@ -70,7 +133,7 @@ export function useVideoCompression() {
     }
   }, []);
 
-  const startCompression = useCallback(async (maxSizeMB: number = DEFAULT_MAX_SIZE, trimStart?: number, trimEnd?: number) => {
+  const startCompression = useCallback(async (maxSizeMB: number, trimStart?: number, trimEnd?: number) => {
     if (!state.originalFile) {
       setState((prev) => ({
         ...prev,
@@ -94,6 +157,7 @@ export function useVideoCompression() {
         status: 'processing',
         progress: 0,
         error: null,
+        startTime: Date.now(),
       }));
 
       const options: CompressionOptions = {
@@ -111,6 +175,19 @@ export function useVideoCompression() {
 
       const compressedFile = await compressVideo(state.originalFile, options);
 
+      // Verify the compressed video works
+      const isValid = await verifyCompressedVideo(compressedFile);
+      
+      if (!isValid) {
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: 'Compressed video may not be compatible with this device. Try using a smaller target size or "Fast" compression mode.',
+          progress: 0,
+        }));
+        return false;
+      }
+
       setState((prev) => ({
         ...prev,
         status: 'completed',
@@ -120,11 +197,12 @@ export function useVideoCompression() {
 
       return true;
     } catch (error: any) {
-      if (error.name === 'VideoCompressionCancelled' || error.message?.includes('cancelled')) {
+      if (error instanceof VideoCompressionCancelled || error.name === 'VideoCompressionCancelled') {
         setState((prev) => ({
           ...prev,
           status: 'idle',
           progress: 0,
+          error: null,
         }));
         return false;
       }
@@ -137,13 +215,19 @@ export function useVideoCompression() {
       }));
       return false;
     }
-  }, [state.originalFile]);
+  }, [state.originalFile, verifyCompressedVideo]);
 
   const cancelCompression = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    setState((prev) => ({
+      ...prev,
+      status: 'idle',
+      progress: 0,
+      error: null,
+    }));
   }, []);
 
   const reset = useCallback(() => {

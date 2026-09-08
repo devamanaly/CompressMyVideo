@@ -1,49 +1,99 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Settings, Scissors } from 'lucide-react';
-import { DEFAULT_MAX_SIZE, MIN_MAX_SIZE, MAX_MAX_SIZE, COMPRESSION_QUALITY_PRESETS } from '@/lib/constants';
+import { MIN_MAX_SIZE } from '@/lib/constants';
 
 interface CompressionControlsProps {
   maxSizeMB: number;
+  maxPossibleSize: number;
   onMaxSizeChange: (value: number) => void;
   onCompress: () => void;
   onCancel: () => void;
   isProcessing: boolean;
   hasFile: boolean;
   duration?: number;
+  fileSizeMB: number;
+  onTrimChange?: (start: number, end: number) => void;
 }
 
 export function CompressionControls({
   maxSizeMB,
+  maxPossibleSize,
   onMaxSizeChange,
   onCompress,
   onCancel,
   isProcessing,
   hasFile,
   duration,
+  fileSizeMB,
+  onTrimChange,
 }: CompressionControlsProps) {
   const [showTrim, setShowTrim] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(duration || 0);
 
+  // Update trim end when duration changes
+  useEffect(() => {
+    if (duration) {
+      setTrimEnd(duration);
+      setTrimStart(0);
+    }
+  }, [duration]);
+
   const formatTime = (seconds: number): string => {
+    if (!seconds || seconds === 0) return '0:00';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handlePresetClick = (value: number) => {
-    onMaxSizeChange(value);
-  };
-
   const handleTrimToggle = () => {
     if (!showTrim && duration) {
       setTrimEnd(duration);
+      setTrimStart(0);
+      if (onTrimChange) {
+        onTrimChange(0, duration);
+      }
     }
     setShowTrim(!showTrim);
   };
+
+  const handleTrimStartChange = (value: number) => {
+    setTrimStart(value);
+    if (onTrimChange) {
+      onTrimChange(value, trimEnd);
+    }
+  };
+
+  const handleTrimEndChange = (value: number) => {
+    setTrimEnd(value);
+    if (onTrimChange) {
+      onTrimChange(trimStart, value);
+    }
+  };
+
+  // Calculate presets based on file size
+  const getPresets = () => {
+    const presets = [];
+    const percentages = [0.1, 0.3, 0.5, 0.8];
+    const labels = ['Small (10%)', 'Medium (30%)', 'Large (50%)', 'Original (80%)'];
+    
+    for (let i = 0; i < percentages.length; i++) {
+      const value = Math.round(fileSizeMB * percentages[i]);
+      if (value >= MIN_MAX_SIZE && value <= maxPossibleSize) {
+        presets.push({
+          label: labels[i],
+          value: Math.max(MIN_MAX_SIZE, Math.min(value, maxPossibleSize))
+        });
+      }
+    }
+    return presets;
+  };
+
+  const presets = getPresets();
 
   return (
     <div className="space-y-6">
@@ -66,7 +116,7 @@ export function CompressionControls({
           value={[maxSizeMB]}
           onValueChange={([value]) => onMaxSizeChange(value)}
           min={MIN_MAX_SIZE}
-          max={MAX_MAX_SIZE}
+          max={maxPossibleSize}
           step={1}
           disabled={isProcessing || !hasFile}
         >
@@ -79,27 +129,34 @@ export function CompressionControls({
           />
         </Slider.Root>
 
-        {/* Preset Buttons */}
-        <div className="flex flex-wrap gap-2">
-          {COMPRESSION_QUALITY_PRESETS.map((preset) => (
-            <button
-              key={preset.value}
-              onClick={() => handlePresetClick(preset.value)}
-              disabled={isProcessing || !hasFile}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
-                maxSizeMB === preset.value
-                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 ring-2 ring-purple-500'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {preset.label}
-            </button>
-          ))}
+        <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500">
+          <span>{MIN_MAX_SIZE} MB</span>
+          <span>Max: {maxPossibleSize} MB</span>
         </div>
+
+        {/* Dynamic Preset Buttons */}
+        {presets.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {presets.map((preset) => (
+              <button
+                key={preset.value}
+                onClick={() => onMaxSizeChange(preset.value)}
+                disabled={isProcessing || !hasFile}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
+                  maxSizeMB === preset.value
+                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 ring-2 ring-purple-500'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Trim Controls */}
-      {duration && (
+      {duration && duration > 0 && (
         <div className="space-y-3">
           <button
             onClick={handleTrimToggle}
@@ -107,23 +164,30 @@ export function CompressionControls({
             className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Scissors className="w-4 h-4" />
-            <span>{showTrim ? 'Hide trim controls' : 'Trim video'}</span>
-            <span className="text-xs text-gray-400">({formatTime(trimStart)} - {formatTime(trimEnd)})</span>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300"> Trim Video
+              {/* <span className="text-xs text-gray-400">
+                ({formatTime(trimStart)} - {formatTime(trimEnd)})
+              </span> */}
+              </label>
           </button>
 
-          {showTrim && (
+          {/* {showTrim && ( */}
             <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Start: {formatTime(trimStart)}</span>
-                  <span className="text-gray-600 dark:text-gray-400">End: {formatTime(trimEnd)}</span>
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Start: {formatTime(trimStart)}
+                  </span>
+                  <span className="text-gray-600 dark:text-gray-400">
+                    End: {formatTime(trimEnd)}
+                  </span>
                 </div>
                 <Slider.Root
                   className="relative flex items-center select-none touch-none w-full h-5"
                   value={[trimStart, trimEnd]}
                   onValueChange={([start, end]) => {
-                    setTrimStart(start);
-                    setTrimEnd(end);
+                    handleTrimStartChange(start);
+                    handleTrimEndChange(end);
                   }}
                   min={0}
                   max={duration}
@@ -144,7 +208,7 @@ export function CompressionControls({
                 </Slider.Root>
               </div>
             </div>
-          )}
+          {/* )} */}
         </div>
       )}
 
