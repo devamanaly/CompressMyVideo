@@ -77,9 +77,9 @@ export default function Home() {
               CompressMyVideo
             </span> */}
           {/* </div> */}
-          <div className=" flex items-center justify-center gap-2 mb-4">
+          <div className=" flex items-center justify-center flex-wrap gap-2 mb-4">
 
-          <Sparkles className="w-7 h-7 text-purple-500" />
+          <Sparkles className="md:w-9 md:h-9 w-7 h-7 text-purple-500" />
 
           <h1 className="text-3xl md:text-5xl font-bold gradient-text mb-2 md:mb-3">
             Compress My Video
